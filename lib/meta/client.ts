@@ -964,7 +964,12 @@ export async function subscribeInstagramAccountToWebhooks(
         Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        subscribed_fields: ["comments", "messages"],
+        // messaging_postbacks carries taps on an opening DM's button, which is
+        // what triggers the reveal message. Subscribing the app to the field in
+        // the Meta console is not enough: delivery is governed per account by
+        // subscribed_apps, so leaving it out here makes every button tap vanish
+        // silently — the DM sends, Meta accepts it, and nothing ever follows.
+        subscribed_fields: ["comments", "messages", "messaging_postbacks"],
       }),
     }
   );
