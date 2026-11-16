@@ -17,7 +17,32 @@ export async function processInstagramWebhook({ payload: incoming, provider, wor
   const accountMap = new Map(accounts.map(a => [a.instagramId, a]));
   const allowed = new Set(accountMap.keys());
   const payload = { ...incoming, entry: incoming.entry.filter(e => allowed.has(e.id)) };
-  if (!payload.entry.length) return;
+  if (!payload.entry.length) {
+    // A payload for an id we don't hold used to vanish here without a trace,
+    // which is indistinguishable from Meta never having sent it. Messaging
+    // webhooks can carry a differently scoped id than the comment webhooks the
+    // account was matched on, so record what arrived instead of dropping it
+    // silently. Ids only — no message text.
+    await prisma.operationalEvent
+      .create({
+        data: {
+          source: "SYSTEM",
+          level: "WARNING",
+          message: "Webhook ignored: no connected account matches entry id",
+          payload: {
+            entryIds: incoming.entry.map((e) => e.id),
+            knownIds: [...allowed],
+            kinds: incoming.entry.map((e) =>
+              Object.keys(e as unknown as Record<string, unknown>).filter(
+                (k) => k !== "id" && k !== "time"
+              )
+            ),
+          },
+        },
+      })
+      .catch(() => {});
+    return;
+  }
   const webhookEvent = await prisma.webhookEvent.create({
     data: {
       object:
