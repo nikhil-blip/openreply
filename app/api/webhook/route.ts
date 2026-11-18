@@ -61,6 +61,33 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // processInstagramWebhook drops anything whose `object` is not "instagram"
+  // before recording it, so a delivery routed through another object — which is
+  // how messaging events can arrive for a Facebook Login for Business
+  // configuration — is indistinguishable from Meta never sending one. Record
+  // the envelope here, ahead of every filter, so that case is visible. Shape
+  // only: object, entry ids and which keys each entry carries. No message text.
+  const envelope = payload as { object?: unknown; entry?: unknown };
+  if (envelope?.object !== "instagram") {
+    await prisma.operationalEvent
+      .create({
+        data: {
+          source: "SYSTEM",
+          level: "WARNING",
+          message: `Webhook ignored: unhandled object "${String(envelope?.object)}"`,
+          payload: {
+            object: String(envelope?.object),
+            entryCount: Array.isArray(envelope?.entry) ? envelope.entry.length : 0,
+            entryKeys: Array.isArray(envelope?.entry)
+              ? envelope.entry.map((e) => Object.keys(e as object))
+              : [],
+            bodyPreview: rawBody.slice(0, 600),
+          },
+        },
+      })
+      .catch(() => {});
+  }
+
   try {
     await processInstagramWebhook({ payload: payload as Parameters<typeof parseCommentEvents>[0], provider: 'META' });
     return NextResponse.json({ success: true });
