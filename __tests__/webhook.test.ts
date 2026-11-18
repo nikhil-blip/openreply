@@ -9,6 +9,7 @@ import {
   verifyWebhookSignature,
   parseCommentEvents,
   parseMessageEvents,
+  parsePostbackEvents,
   parseReadEvents,
 } from "../lib/meta/webhook";
 import { createHmac } from "crypto";
@@ -513,5 +514,91 @@ describe("parseReadEvents", () => {
     };
 
     expect(parseReadEvents(payload)).toHaveLength(0);
+  });
+});
+
+describe("quick replies as postbacks", () => {
+  function quickReplyPayload(payload: string, extra: Record<string, unknown> = {}) {
+    return {
+      object: "instagram",
+      entry: [
+        {
+          id: "ig-account-1",
+          messaging: [
+            {
+              sender: { id: "follower-1" },
+              recipient: { id: "ig-account-1" },
+              message: { mid: "mid-1", text: "I'm following", quick_reply: { payload }, ...extra },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("parses a quick-reply tap as a postback, so Unified login apps still get the tap", () => {
+    // Unified login never delivers messaging_postbacks. A quick reply arrives
+    // under `messages` instead and has to drive the same follow-gate path.
+    expect(parsePostbackEvents(quickReplyPayload("followcheck:auto-1") as never)).toEqual([
+      {
+        instagramAccountId: "ig-account-1",
+        userId: "follower-1",
+        payload: "followcheck:auto-1",
+        mid: "mid-1",
+      },
+    ]);
+  });
+
+  it("does not also treat a quick-reply tap as a typed message", () => {
+    // Otherwise one tap both re-checks the follow and fires the keyword
+    // autoreply, sending two DMs and spending two sends of quota.
+    expect(parseMessageEvents(quickReplyPayload("followcheck:auto-1") as never)).toEqual([]);
+  });
+
+  it("ignores the account's own echo of a quick reply", () => {
+    expect(
+      parsePostbackEvents(quickReplyPayload("followcheck:auto-1", { is_echo: true }) as never)
+    ).toEqual([]);
+  });
+
+  it("still parses a real postback button tap", () => {
+    const payload = {
+      object: "instagram",
+      entry: [
+        {
+          id: "ig-account-1",
+          messaging: [
+            {
+              sender: { id: "follower-1" },
+              recipient: { id: "ig-account-1" },
+              postback: { mid: "pb-1", payload: "reveal:auto-1" },
+            },
+          ],
+        },
+      ],
+    };
+    expect(parsePostbackEvents(payload as never)).toEqual([
+      { instagramAccountId: "ig-account-1", userId: "follower-1", payload: "reveal:auto-1", mid: "pb-1" },
+    ]);
+  });
+
+  it("leaves an ordinary typed message alone", () => {
+    const payload = {
+      object: "instagram",
+      entry: [
+        {
+          id: "ig-account-1",
+          messaging: [
+            {
+              sender: { id: "follower-1" },
+              recipient: { id: "ig-account-1" },
+              message: { mid: "mid-2", text: "LINK" },
+            },
+          ],
+        },
+      ],
+    };
+    expect(parsePostbackEvents(payload as never)).toEqual([]);
+    expect(parseMessageEvents(payload as never)).toHaveLength(1);
   });
 });

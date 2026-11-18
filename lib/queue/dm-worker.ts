@@ -682,12 +682,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           postId: mediaId,
         });
       } else if (sendFollowPrompt) {
-        const promptText = renderMessageWithoutLink({
-          message:
-            automation.followPromptMessage ||
-            "quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over",
-          commenterName,
-        });
+        const promptText = withProfileLink(
+          renderMessageWithoutLink({
+            message:
+              automation.followPromptMessage ||
+              "quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over",
+            commenterName,
+          }),
+          automation.instagramAccount.username
+        );
         await sendPrivateReplyWithButton({
           context: accessToken,
           instagramAccountId: automation.instagramAccount.instagramId,
@@ -886,6 +889,24 @@ async function sendFollowRecheckAck({
  * The postback payload is `reveal:<automationId>`; the sender is the user's
  * IGSID (same id as their comment author id), which we DM directly.
  */
+/**
+ * The follow prompt with a link to the account's profile appended, so the
+ * reader has a way to go and follow.
+ *
+ * A quick reply cannot carry a URL, and quick replies are the only tap that
+ * comes back on a Unified login app, so "follow me" has to be a link in the
+ * body rather than a second tappable option. Left alone when the author's own
+ * prompt already links the profile, so a custom wording is never duplicated.
+ */
+function withProfileLink(
+  text: string,
+  username: string | null | undefined
+): string {
+  if (!username) return text;
+  if (text.includes(`instagram.com/${username}`)) return text;
+  return `${text}\n\nhttps://instagram.com/${username}`;
+}
+
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   const { instagramAccountId, userId, payload, fallback } = job.data;
 
@@ -980,7 +1001,14 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     // "User consent is required", i.e. null), so failing open here handed the
     // link to anyone who read the opening DM and waited, follower or not.
     if (fallback && follows !== true) return;
-    if (follows === false) {
+    // Fail closed: only a confirmed follow releases the link. This used to let
+    // `null` through so a real follower could never be trapped, but `null` is
+    // also what Meta returns when it cannot resolve the status, which handed
+    // the resource to non-followers who tapped "I'm following" without
+    // following. An unverifiable status now takes the same path as a refusal:
+    // delayed re-checks first, then the prompt again, so a genuine follower
+    // still gets through as soon as the follow registers.
+    if (follows !== true) {
       if (fallback) return;
 
       // A tap on an opening-DM button is not a claim to follow — most people
@@ -1029,7 +1057,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
           return;
         }
 
-        // Last `false`: they are genuinely not following. Record it — this
+        // Re-checks exhausted and still not confirmed. Record it — this
         // branch used to return without writing anything at all, so a gate that
         // turned people away left no trace and its rejection rate could not be
         // measured, only guessed at from complaints.
@@ -1051,12 +1079,15 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
           .catch(() => {});
       }
 
-      const promptText = renderMessageWithoutLink({
-        message:
-          automation.followPromptMessage ||
-          "quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over",
-        commenterName,
-      });
+      const promptText = withProfileLink(
+        renderMessageWithoutLink({
+          message:
+            automation.followPromptMessage ||
+            "quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over",
+          commenterName,
+        }),
+        automation.instagramAccount.username
+      );
       try {
         await sendPostbackOnce({
           operationId,
@@ -1439,12 +1470,15 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
 
     try {
       if (sendFollowPrompt) {
-        const promptText = renderMessageWithoutLink({
-          message:
-            automation.followPromptMessage ||
-            "Almost there! Follow me and tap the button below to grab your link 💛",
-          commenterName,
-        });
+        const promptText = withProfileLink(
+          renderMessageWithoutLink({
+            message:
+              automation.followPromptMessage ||
+              "Almost there! Follow me and tap the button below to grab your link 💛",
+            commenterName,
+          }),
+          automation.instagramAccount.username
+        );
         await sendDirectMessageWithButton({
           context: accessToken,
           instagramAccountId: automation.instagramAccount.instagramId,

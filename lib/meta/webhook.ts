@@ -82,6 +82,11 @@ interface WebhookEntry {
       is_echo?: boolean;
       is_deleted?: boolean;
       is_unsupported?: boolean;
+      // A quick-reply tap arrives as an ordinary message carrying the payload
+      // we attached to the option, under the `messages` field rather than
+      // `messaging_postbacks`. That matters for Unified login apps, where Meta
+      // does not deliver messaging_postbacks at all.
+      quick_reply?: { payload?: string };
       attachments?: Array<{ type?: string }>;
     };
   }>;
@@ -174,7 +179,14 @@ export function parsePostbackEvents(
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
-      const postbackPayload = messaging.postback?.payload;
+      // A quick-reply tap is the same intent as a button tap and carries the
+      // same payload, so it is treated as one here and the worker handles both
+      // through a single path. Echoes are skipped: the account's own outgoing
+      // message repeats the quick reply the user tapped.
+      const quickReplyPayload = messaging.message?.is_echo
+        ? undefined
+        : messaging.message?.quick_reply?.payload;
+      const postbackPayload = messaging.postback?.payload ?? quickReplyPayload;
       const userId = messaging.sender?.id;
       const accountId = entry.id ?? messaging.recipient?.id;
 
@@ -186,7 +198,7 @@ export function parsePostbackEvents(
         instagramAccountId: accountId,
         userId,
         payload: postbackPayload,
-        mid: messaging.postback?.mid,
+        mid: messaging.postback?.mid ?? messaging.message?.mid,
       });
     }
   }
@@ -218,6 +230,11 @@ export function parseMessageEvents(
       if (message.is_echo || message.is_deleted || message.is_unsupported) {
         continue;
       }
+      // A quick-reply tap is handled as a postback, not as a typed message.
+      // Without this it would also run the keyword autoreply, so one tap on
+      // "I'm following" could both re-check the follow and fire a campaign
+      // reply, sending two DMs and spending two sends of quota.
+      if (message.quick_reply?.payload) continue;
 
       const text = message.text?.trim();
       const messageId = message.mid;

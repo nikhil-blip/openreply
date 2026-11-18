@@ -442,6 +442,95 @@ export async function sendDirectMessage(
   return handleResponse(response);
 }
 
+/** A tappable quick-reply option. `payload` comes back to us on tap. */
+export interface QuickReplyOption {
+  title: string;
+  payload: string;
+}
+
+function quickReplyBody(quickReplies: QuickReplyOption[]) {
+  // Instagram allows at most 13 quick replies, titles capped at 20 characters.
+  return quickReplies.slice(0, 13).map((option) => ({
+    content_type: "text",
+    title: option.title.slice(0, 20),
+    payload: option.payload,
+  }));
+}
+
+/**
+ * Send a direct message with quick replies.
+ *
+ * The postback alternative (sendDirectMessageWithButton) is unusable on a
+ * Unified login app: Meta accepts the button template and renders the button,
+ * but never delivers the `messaging_postbacks` webhook, so the tap is lost and
+ * the conversation stalls with no error anywhere. A quick-reply tap arrives
+ * under `messages` instead, which those apps do receive, so the same
+ * tap-to-confirm flow survives. Verified against a live Unified login app:
+ * subscribed_apps listed messaging_postbacks and taps still produced no
+ * delivery of any kind.
+ */
+export async function sendDirectMessageWithQuickReplies(
+  auth: MetaAuth,
+  instagramAccountId: string,
+  userId: string,
+  text: string,
+  quickReplies: QuickReplyOption[]
+): Promise<{ recipient_id: string; message_id: string }> {
+  const accessToken = tokenOf(auth);
+  const response = await fetch(
+    `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: userId },
+        message: {
+          text: text.slice(0, 1000),
+          quick_replies: quickReplyBody(quickReplies),
+        },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
+/**
+ * The quick-reply counterpart of sendPrivateReplyWithButton: a private reply to
+ * a comment that carries tappable options instead of a postback button.
+ */
+export async function sendPrivateReplyWithQuickReplies(
+  auth: MetaAuth,
+  instagramAccountId: string,
+  commentId: string,
+  text: string,
+  quickReplies: QuickReplyOption[]
+): Promise<{ recipient_id: string; message_id: string }> {
+  const accessToken = tokenOf(auth);
+  const response = await fetch(
+    `${instagramGraphBase(auth)}/${instagramAccountId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        recipient: { comment_id: commentId },
+        message: {
+          text: text.slice(0, 1000),
+          quick_replies: quickReplyBody(quickReplies),
+        },
+      }),
+    }
+  );
+
+  return handleResponse(response);
+}
+
 /**
  * Send a direct message as a button template with up to 3 web_url buttons —
  * the reveal message plus tappable link buttons (cleaner than inline URLs).

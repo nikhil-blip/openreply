@@ -113,7 +113,18 @@ export async function sendPrivateReplyWithButton({
   payload: string;
   postId?: string;
 }) {
-  if (context.provider === "META")
+  if (context.provider === "META") {
+    // Unified login never receives messaging_postbacks, so a postback button
+    // renders and then swallows the tap. Quick replies carry the same payload
+    // back under `messages`, which those apps do receive.
+    if (context.unifiedLogin)
+      return meta.sendPrivateReplyWithQuickReplies(
+        context,
+        instagramAccountId,
+        commentId,
+        text,
+        [{ title: buttonTitle, payload }]
+      );
     return meta.sendPrivateReplyWithButton(
       context,
       instagramAccountId,
@@ -122,6 +133,7 @@ export async function sendPrivateReplyWithButton({
       buttonTitle,
       payload
     );
+  }
   return sendZernioMessage({
     context,
     commentId,
@@ -146,7 +158,17 @@ export async function sendDirectMessageWithButton({
   buttonTitle: string;
   payload: string;
 }) {
-  if (context.provider === "META")
+  if (context.provider === "META") {
+    // See sendPrivateReplyWithButton above: quick replies are the only tap
+    // that comes back on a Unified login app.
+    if (context.unifiedLogin)
+      return meta.sendDirectMessageWithQuickReplies(
+        context,
+        instagramAccountId,
+        userId,
+        text,
+        [{ title: buttonTitle, payload }]
+      );
     return meta.sendDirectMessageWithButton(
       context,
       instagramAccountId,
@@ -155,6 +177,7 @@ export async function sendDirectMessageWithButton({
       buttonTitle,
       payload
     );
+  }
   return sendZernioMessage({
     context,
     recipientId: userId,
